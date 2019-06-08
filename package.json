@@ -21,5 +21,8 @@
   "bugs": {
     "url": "https://github.com/madnificent/mu-mollie-payment-service/issues"
   },
-  "homepage": "https://github.com/madnificent/mu-mollie-payment-service#readme"
+  "homepage": "https://github.com/madnificent/mu-mollie-payment-service#readme",
+  "dependencies": {
+    "@mollie/api-client": "^2.3.2"
+  }
 }
