@@ -10,7 +10,8 @@ const MOLLIE_BASE_WEBHOOK_URL = "http://link-to-payment-service-webhook-call/";
 
 const asyncMiddleware = fn =>
   (req, res, next) => {
-    Promise.resolve(fn(req, res, next))
+    Promise
+      .resolve(fn(req, res, next))
       .catch(next);
   };
 
@@ -18,7 +19,7 @@ function makeMollieClient() {
   return mollieConstructor({ apiKey: MOLLIE_API_KEY });
 }
 
-app.post('/payments', asyncMiddleware( function( req, res, next ) {
+app.post('/payments', asyncMiddleware( async function( req, res, next ) {
   const { type, attributes } = req.body.data;
   assert.equal( type, "payments" );
   const { amount, description } = attributes;
@@ -27,7 +28,7 @@ app.post('/payments', asyncMiddleware( function( req, res, next ) {
 
   const redirectUrl = attributes.redirectUrl || MOLLIE_REDIRECT_URL;
 
-  return client.payments.create({
+  const payment = await client.payments.create({
     amount: {
       value:    amount,
       currency: 'EUR'
@@ -35,24 +36,19 @@ app.post('/payments', asyncMiddleware( function( req, res, next ) {
     description, redirectUrl,
     webhookUrl:  MOLLIE_BASE_WEBHOOK_URL,
     // method: ["applepay","bancontact","banktransfer","belfius","creditcard","directdebit","ideal","inghomepay","kbc","paypal"]
-  })
-    .then((payment) => {
-      res
-        .status( 201 )
-        .send( JSON.stringify( {
-          data: {
-            type: "payments",
-            attributes: {
-              paymentUrl: payment.getPaymentUrl(),
+  });
 
-            }
-          }
-        } ) );
-    })
-    .catch((err) => {
-      // Handle the error
-      next( err );
-    });
+  res
+    .status( 201 )
+    .send( JSON.stringify( {
+      data: {
+        type: "payments",
+        attributes: {
+          paymentUrl: payment.getPaymentUrl(),
+
+        }
+      }
+    } ) );
 } ) );
 
 app.post('webhook', function( req, res ) {
