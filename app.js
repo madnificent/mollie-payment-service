@@ -22,7 +22,9 @@ function makeMollieClient() {
 app.post('/payments', asyncMiddleware( async function( req, res, next ) {
   const { type, attributes } = req.body.data;
   assert.equal( type, "payments" );
-  const { amount, description } = attributes;
+  const { description } = attributes;
+
+  const amount = await getAmountFromSession(req);
 
   const client = makeMollieClient();
 
@@ -30,7 +32,7 @@ app.post('/payments', asyncMiddleware( async function( req, res, next ) {
 
   const payment = await client.payments.create({
     amount: {
-      value:    amount,
+      value:   amount.toFixed(2),
       currency: 'EUR'
     },
     description, redirectUrl,
@@ -63,3 +65,37 @@ app.get('', function( req, res ) {
 
 
 app.use( errorHandler );
+
+
+async function getAmountFromSession(req){
+  const sessionUri = req.get('mu-session-id');
+
+  const queryString = `PREFIX veeakker: <http://veeakker.be/vocabularies/shop/>
+    PREFIX gr: <http://purl.org/goodrelations/v1#>
+    PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+
+    SELECT * WHERE {
+      GRAPH <http://mu.semte.ch/application> {
+        ${sparqlEscapeUri(sessionUri)} veeakker:hasBasket ?basket.
+        ?basket veeakker:orderLine ?orderLine.
+
+        ?orderLine veeakker:amount ?amount.
+        ?orderLine veeakker:hasOffering/gr:hasPriceSpecification ?priceSpec.
+        ?priceSpec gr:hasUnitOfMeasurement "C62";
+                   gr:hasCurrencyValue ?value.
+      }
+    }`;
+
+  // TODO: cope with different types of measurements
+  const response = await query( queryString );
+
+  const reducer = function( acc, obj ) {
+    console.log(`Adding object ${JSON.stringify( obj )}`);
+    const { amount, value } = obj;
+    return parseFloat( value.value ) * parseInt( amount.value );
+  };
+
+  const result = response.results.bindings.reduce( reducer, 0 );
+
+  return result;
+}
