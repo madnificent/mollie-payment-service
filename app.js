@@ -5,6 +5,8 @@ import assert from 'assert';
 import mollieConstructor from '@mollie/api-client';
 import bodyParser from 'body-parser';
 
+app.use( bodyParser.urlencoded({extended: true})); // Mollie posts urlencoded forms
+
 const MOLLIE_API_KEY = process.env.MOLLIE_API_KEY;
 const MOLLIE_REDIRECT_URL = process.env.MOLLIE_REDIRECT_URL;
 const MOLLIE_BASE_WEBHOOK_URL = process.env.MOLLIE_BASE_WEBHOOK_URL;
