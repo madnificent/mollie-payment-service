@@ -5,9 +5,9 @@ import assert from 'assert';
 import mollieConstructor from '@mollie/api-client';
 import bodyParser from 'body-parser';
 
-const MOLLIE_API_KEY = "YOUR MOLLIE API KEY";
-const MOLLIE_REDIRECT_URL = "http://link-to-redirect-app-site/";
-const MOLLIE_BASE_WEBHOOK_URL = "http://link-to-payment-service-webhook-call/";
+const MOLLIE_API_KEY = process.env.MOLLIE_API_KEY;
+const MOLLIE_REDIRECT_URL = process.env.MOLLIE_REDIRECT_URL;
+const MOLLIE_BASE_WEBHOOK_URL = process.env.MOLLIE_BASE_WEBHOOK_URL;
 
 const asyncMiddleware = fn =>
   (req, res, next) => {
