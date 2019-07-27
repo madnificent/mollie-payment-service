@@ -1,6 +1,6 @@
 // see https://github.com/mu-semtech/mu-javascript-template for more info
 
-import { app, query, update, errorHandler, sparqlEscapeUri, sparqlEscapeString } from 'mu';
+import { app, query, update, errorHandler, sparqlEscapeUri, sparqlEscapeString, sparqlEscapeDateTime } from 'mu';
 import assert from 'assert';
 import mollieConstructor from '@mollie/api-client';
 import bodyParser from 'body-parser';
@@ -27,7 +27,7 @@ app.post('/payments', asyncMiddleware( async function( req, res, next ) {
   assert.equal( type, "payments" );
   const { description } = attributes;
 
-  const amount = await getAmountFromSession(req);
+  const { amount, basketUuid } = await getSessionBasketInfo(req);
 
   const client = makeMollieClient();
 
@@ -78,14 +78,22 @@ app.post('/webhook', async function( req, res ) {
 
       WITH <http://mu.semte.ch/application>
       DELETE {
-        ?basket veeakker:basketPaymentStatus ?paymentStatus.
+        ?basket veeakker:basketPaymentStatus ?paymentStatus;
+                veeakker:basketOrderStatus ?orderStatus;
+                veeakker:statusChangedAt ?changedDate.
       }
       INSERT {
-        ?basket veeakker:basketPaymentStatus ${sparqlEscapeString(paymentStatus)}.
+        ?basket
+          veeakker:basketPaymentStatus ${sparqlEscapeString(paymentStatus)};
+          veeakker:statusChangedAt ${sparqlEscapeDateTime(new Date())};
+          veeakker:basketOrderStatus
+            ${paymentStatus === "paid" ? `<http://veeakker.be/order-statuses/confirmed>` : `<http://veeakker.be/order-statuses/draft>`}.
       }
       WHERE {
         ${sparqlEscapeUri(sessionId)} veeakker:hasBasket ?basket.
         OPTIONAL { ?basket veeakker:basketPaymentStatus ?paymentStatus. }
+        OPTIONAL { ?basket veeakker:basketOrderStatus ?orderStatus. }
+        OPTIONAL { ?basket veeakker:statusChangedAt ?changedDate. }
       }
     `);
 
@@ -105,7 +113,7 @@ app.get('', function( req, res ) {
 app.use( errorHandler );
 
 
-async function getAmountFromSession(req){
+async function getSessionBasketInfo(req){
   const sessionUri = req.get('mu-session-id');
 
   const queryString = `PREFIX veeakker: <http://veeakker.be/vocabularies/shop/>
@@ -116,6 +124,7 @@ async function getAmountFromSession(req){
       GRAPH <http://mu.semte.ch/application> {
         ${sparqlEscapeUri(sessionUri)} veeakker:hasBasket ?basket.
         ?basket veeakker:orderLine ?orderLine.
+        ?basket mu:uuid ?uuid.
 
         ?orderLine veeakker:amount ?amount.
         ?orderLine veeakker:hasOffering/gr:hasPriceSpecification ?priceSpec.
@@ -133,7 +142,9 @@ async function getAmountFromSession(req){
     return parseFloat( value.value ) * parseInt( amount.value );
   };
 
-  const result = response.results.bindings.reduce( reducer, 0 );
+  const amount = response.results.bindings.reduce( reducer, 0 );
 
-  return result;
+  const basketUuid = response.results.bindings[0].uuid.value;
+
+  return { amount, basketUuid };
 }
