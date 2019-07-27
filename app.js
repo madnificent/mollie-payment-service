@@ -64,6 +64,8 @@ app.post('/webhook', async function( req, res ) {
 
   const paymentId = req.body.id;
 
+  // TODO: verify payment amount reflects current basket value
+
   try {
     const client = makeMollieClient();
     const paymentInfo = await client.payments.get(paymentId);
