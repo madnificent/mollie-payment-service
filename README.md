@@ -66,7 +66,17 @@ Notes:
 
 You can specify the application's Mollie API key via the `MOLLIE_API_KEY` environment variable in the `docker-compose.yml` file.  
 It will use this API key to handle payments if there is no Mollie API key specified for the seller in the triple store.  
-However, specifying a Mollie API key for the seller in the triple store (`?sellerWebId ext:mollieApiKey ?mollieApiKey`) will override the default API key, letting the buyer directly pay to the seller.
+However, specifying a Mollie API key for the seller in the triple store (`?sellerWebId ext:mollieApiKey ?mollieApiKey`) will override the default API key, letting the buyer directly pay to the seller.  
+
+This user specific API key can also be configured using the `POST /key` endpoint with body `{apiKey: "your mollie api key", sellerWebId: "webId for which to configure the key"}`.
+
+If you want to support this feature, make sure to add following to your `dispatcher.ex`
+
+```elixir
+  match "/key/*path" do
+    Proxy.forward conn, path, "http://payments/key/"
+  end
+```
 
 ### Required triples in the triple store
 
