@@ -19,18 +19,6 @@ export async function getPaymentInformationFromPaymentId(paymentId) {
     return query(queryQuery);
 }
 
-export async function getMollieApiKey(sellerWebId) {
-    const queryQuery = `
-    PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
-    SELECT ?mollieApiKey
-    FROM <http://mu.semte.ch/application>
-    WHERE {
-        <${sellerWebId}> ext:mollieApiKey ?mollieApiKey.
-    }`;
-
-    return query(queryQuery);
-}
-
 export async function checkPayment(paymentId, apiKey) {
     const mollieClient = createMollieClient({apiKey: apiKey});
 

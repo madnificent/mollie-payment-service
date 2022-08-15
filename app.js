@@ -3,11 +3,11 @@
 import {app} from 'mu';
 import {
     checkPayment, confirmPayment,
-    getMollieApiKey,
     getOrderDetails,
     getPaymentInformationFromPaymentId,
     handlePayment, savePaymentId, sendBackendCallback
 } from "./payments";
+import {storeMollieApiKey, getMollieApiKey} from "./credentials";
 
 const MOLLIE_API_KEY = process.env.MOLLIE_API_KEY;
 const MOLLIE_REDIRECT_URL = process.env.MOLLIE_REDIRECT_URL;
@@ -90,5 +90,24 @@ app.post('/payments/callback', async (req, res) => {
     } else {
         // For security reasons, we don't want to leak information about an unknown payment id.
         res.send('OK');
+    }
+});
+
+app.post('/key', async (req, res) => {
+    const sellerWebId = decodeURIComponent(req.body.sellerWebId);
+    if (sellerWebId === undefined) {
+        res.status(400).send('Missing sellerWebId');
+        return;
+    }
+    const apiKey = req.body.apiKey;
+    if (apiKey === undefined) {
+        res.status(400).send('Missing apiKey');
+        return;
+    }
+
+    if (await storeMollieApiKey(sellerWebId, apiKey)) {
+        res.send('API key stored');
+    } else {
+        res.status(500).send('API key not stored');
     }
 });
