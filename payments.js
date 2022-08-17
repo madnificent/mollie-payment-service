@@ -1,3 +1,4 @@
+import {sparqlEscapeUri, sparqlEscapeString} from 'mu';
 import {querySudo as query, updateSudo as update} from '@lblod/mu-auth-sudo';
 import createMollieClient from "@mollie/api-client";
 import http from "http";
@@ -10,7 +11,7 @@ export async function getPaymentInformationFromPaymentId(paymentId) {
     FROM <http://mu.semte.ch/application>
     WHERE {
         ?order a schema:Order;
-            schema:paymentMethodId "${paymentId}";
+            schema:paymentMethodId ${sparqlEscapeString(paymentId)};
             ext:sellerPod ?sellerPod;
             ext:buyerPod ?buyerPod;
             schema:seller ?seller.
@@ -30,7 +31,7 @@ export async function savePaymentId(orderId, paymentId) {
     const storeQuery = `
     PREFIX schema: <http://schema.org/>
     INSERT DATA { GRAPH <http://mu.semte.ch/application> {
-        <${orderId}> schema:paymentMethodId "${paymentId}".
+        ${sparqlEscapeUri(orderId)} schema:paymentMethodId ${sparqlEscapeString(paymentId)}.
     } }`;
 
     return update(storeQuery);
@@ -43,7 +44,7 @@ export async function getOrderDetails(orderId) {
     SELECT ?orderStatus ?offerName ?offerPrice ?offerCurrency ?sellerWebId
     FROM <http://mu.semte.ch/application>
     WHERE {
-        <${orderId}> a schema:Order;
+        ${sparqlEscapeUri(orderId)} a schema:Order;
             schema:orderStatus ?orderStatus;
             schema:acceptedOffer ?offer.
         ?offer a schema:Offer;
@@ -74,14 +75,14 @@ export async function confirmPayment(buyerPod, sellerPod, orderUUID) {
     const deleteQuery = `
     PREFIX schema: <http://schema.org/>
     DELETE DATA { GRAPH <http://mu.semte.ch/application> {
-        <${orderUUID}> schema:orderStatus <http://schema.org/OrderPaymentDue>.
+        ${sparqlEscapeUri(orderUUID)} schema:orderStatus <http://schema.org/OrderPaymentDue>.
     } }`;
 
     const insertQuery = `
     PREFIX schema: <http://schema.org/>
     PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
     INSERT DATA { GRAPH <http://mu.semte.ch/application> {
-        <${orderUUID}> schema:orderStatus <http://schema.org/OrderDelivered>.
+        ${sparqlEscapeUri(orderUUID)} schema:orderStatus <http://schema.org/OrderDelivered>.
     } }`;
 
     try {
