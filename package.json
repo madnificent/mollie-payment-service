@@ -1,6 +1,6 @@
 {
-  "name": "mu-mollie-payment-service",
-  "version": "0.0.0",
+  "name": "mollie-payment-service",
+  "version": "1.0.0",
   "description": "Connection to mollie.com payment services",
   "main": "app.js",
   "scripts": {
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/madnificent/mu-mollie-payment-service.git"
+    "url": "git+https://github.com/madnificent/mollie-payment-service.git"
   },
   "keywords": [
     "mu-semtech",
@@ -16,13 +16,17 @@
     "mu-service",
     "fintech"
   ],
-  "author": "Aad Versteden",
+  "contributors": [
+    "Aad Versteden",
+    "Ieben Smessaert"
+  ],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/madnificent/mu-mollie-payment-service/issues"
+    "url": "https://github.com/madnificent/mollie-payment-service/issues"
   },
-  "homepage": "https://github.com/madnificent/mu-mollie-payment-service#readme",
+  "homepage": "https://github.com/madnificent/mollie-payment-service#readme",
   "dependencies": {
-    "@mollie/api-client": "^2.3.2"
+    "@lblod/mu-auth-sudo": "^0.6.0",
+    "@mollie/api-client": "^3.6.0"
   }
 }

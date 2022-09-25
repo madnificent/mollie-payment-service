@@ -1,152 +1,113 @@
 // see https://github.com/mu-semtech/mu-javascript-template for more info
 
-import { app, query, update, errorHandler, sparqlEscapeUri, sparqlEscapeString, sparqlEscapeDateTime } from 'mu';
-import assert from 'assert';
-import mollieConstructor from '@mollie/api-client';
-import bodyParser from 'body-parser';
-
-app.use( bodyParser.urlencoded({extended: true})); // Mollie posts urlencoded forms
+import {app} from 'mu';
+import {
+    checkPayment, confirmPayment,
+    getOrderDetails,
+    getPaymentInformationFromPaymentId,
+    handlePayment, savePaymentId, sendBackendCallback
+} from "./payments";
+import {storeMollieApiKey, getMollieApiKey} from "./credentials";
 
 const MOLLIE_API_KEY = process.env.MOLLIE_API_KEY;
 const MOLLIE_REDIRECT_URL = process.env.MOLLIE_REDIRECT_URL;
 const MOLLIE_BASE_WEBHOOK_URL = process.env.MOLLIE_BASE_WEBHOOK_URL;
+const BACKEND_CALLBACK_HOSTNAME = process.env.BACKEND_CALLBACK_HOSTNAME;
+const BACKEND_CALLBACK_PORT = process.env.BACKEND_CALLBACK_PORT;
+const BACKEND_CALLBACK_PATH = process.env.BACKEND_CALLBACK_PATH;
 
-const asyncMiddleware = fn =>
-  (req, res, next) => {
-    Promise
-      .resolve(fn(req, res, next))
-      .catch(next);
-  };
+app.post('/payments', async (req, res) => {
+    const orderId = req.body.orderId;
+    if (orderId === undefined) {
+        res.status(400).send('Missing orderId');
+        return;
+    }
 
-function makeMollieClient() {
-  return mollieConstructor({ apiKey: MOLLIE_API_KEY });
-}
+    const orderDetails = await getOrderDetails(orderId);
+    if (!Array.isArray(orderDetails.results.bindings) || orderDetails.results.bindings.length === 0) {
+        res.status(404).send('Order not found');
+        return;
+    }
+    const sellerWebId = orderDetails.results.bindings[0].sellerWebId.value;
+    const offerName = orderDetails.results.bindings[0].offerName.value;
+    const price = orderDetails.results.bindings[0].offerPrice.value;
+    const orderStatus = orderDetails.results.bindings[0].orderStatus.value;
+    if (orderStatus !== 'http://schema.org/OrderPaymentDue') {
+        res.status(400).send('Order is not due for payment');
+        return;
+    }
 
-app.post('/payments', asyncMiddleware( async function( req, res, next ) {
-  const { type, attributes } = req.body.data;
-  assert.equal( type, "payments" );
-  const { description } = attributes;
+    const mollieApiKeyQuery = await getMollieApiKey(sellerWebId);
 
-  const { amount, basketUuid } = await getSessionBasketInfo(req);
+    // Use the user specific API key of the seller if available. Otherwise, use the default API key of the application.
+    let mollieApiKey = MOLLIE_API_KEY;
+    if (Array.isArray(mollieApiKeyQuery.results.bindings) && mollieApiKeyQuery.results.bindings.length > 0) {
+        mollieApiKey = mollieApiKeyQuery.results.bindings[0].mollieApiKey.value;
+    }
 
-  const client = makeMollieClient();
+    const payment = await handlePayment(offerName, price, mollieApiKey, MOLLIE_REDIRECT_URL, MOLLIE_BASE_WEBHOOK_URL);
 
-  const redirectUrl = attributes.redirectUrl || MOLLIE_REDIRECT_URL;
+    await savePaymentId(orderId, payment.id);
 
-  const payment = await client.payments.create({
-    amount: {
-      value:   amount.toFixed(2),
-      currency: 'EUR'
-    },
-    description, redirectUrl,
-    metadata: { sessionId: req.get('mu-session-id') },
-    webhookUrl:  MOLLIE_BASE_WEBHOOK_URL,
-    // method: ["applepay","bancontact","banktransfer","belfius","creditcard","directdebit","ideal","inghomepay","kbc","paypal"]
-  });
+    res.redirect(payment.getCheckoutUrl());
+});
 
-  res
-    .status( 201 )
-    .send( JSON.stringify( {
-      data: {
-        type: "payments",
-        attributes: {
-          paymentUrl: payment.getPaymentUrl(),
+app.post('/payments/callback', async (req, res) => {
+    const paymentId = req.body.id;
+    if (paymentId === undefined) {
+        res.status(400).send('Missing payment id');
+        return;
+    }
 
+    const paymentInformation = await getPaymentInformationFromPaymentId(paymentId);
+    if (!Array.isArray(paymentInformation.results.bindings) || paymentInformation.results.bindings.length === 0) {
+        throw new Error(`No payment information found for payment ID '${paymentId}'.`);
+    }
+    const buyerPod = paymentInformation.results.bindings[0].buyerPod.value;
+    const sellerPod = paymentInformation.results.bindings[0].sellerPod.value;
+    const sellerWebId = paymentInformation.results.bindings[0].seller.value;
+    const orderId = paymentInformation.results.bindings[0].order.value;
+
+    const mollieApiKeyQuery = await getMollieApiKey(sellerWebId);
+
+    // Use the user specific API key of the seller if available. Otherwise, use the default API key of the application.
+    let mollieApiKey = MOLLIE_API_KEY;
+    if (Array.isArray(mollieApiKeyQuery.results.bindings) && mollieApiKeyQuery.results.bindings.length > 0) {
+        mollieApiKey = mollieApiKeyQuery.results.bindings[0].mollieApiKey.value;
+    }
+
+    const isPaid = await checkPayment(paymentId, mollieApiKey);
+    // Only paid statuses are handled for now.
+    if (isPaid) {
+        if (await confirmPayment(buyerPod, sellerPod, orderId)) {
+            // Send a callback to the backend service to let them know that the payment information has been changed.
+            sendBackendCallback(BACKEND_CALLBACK_HOSTNAME, BACKEND_CALLBACK_PORT, BACKEND_CALLBACK_PATH, paymentId);
+
+            res.send('OK');
+        } else {
+            res.status(500).send('Payment confirmation failed');
         }
-      }
-    } ) );
-} ) );
+    } else {
+        // For security reasons, we don't want to leak information about an unknown payment id.
+        res.send('OK');
+    }
+});
 
-app.post('/webhook', async function( req, res ) {
-  console.log("Received webhook trigger");
-  console.log(JSON.stringify(req.headers));
-  console.log(req.body);
+app.post('/key', async (req, res) => {
+    const sellerWebId = decodeURIComponent(req.body.sellerWebId);
+    if (sellerWebId === undefined) {
+        res.status(400).send('Missing sellerWebId');
+        return;
+    }
+    const apiKey = req.body.apiKey;
+    if (apiKey === undefined) {
+        res.status(400).send('Missing apiKey');
+        return;
+    }
 
-  const paymentId = req.body.id;
-
-  // TODO: verify payment amount reflects current basket value
-
-  try {
-    const client = makeMollieClient();
-    const paymentInfo = await client.payments.get(paymentId);
-
-    const sessionId = paymentInfo.metadata.sessionId;
-    const paymentStatus = paymentInfo.status;
-
-    // TODO: send with updated mu-session-id header
-    const response = await update(`
-      PREFIX veeakker: <http://veeakker.be/vocabularies/shop/>
-      PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-
-      WITH <http://mu.semte.ch/application>
-      DELETE {
-        ?basket veeakker:basketPaymentStatus ?paymentStatus;
-                veeakker:basketOrderStatus ?orderStatus;
-                veeakker:statusChangedAt ?changedDate.
-      }
-      INSERT {
-        ?basket
-          veeakker:basketPaymentStatus ${sparqlEscapeString(paymentStatus)};
-          veeakker:statusChangedAt ${sparqlEscapeDateTime(new Date())};
-          veeakker:basketOrderStatus
-            ${paymentStatus === "paid" ? `<http://veeakker.be/order-statuses/confirmed>` : `<http://veeakker.be/order-statuses/draft>`}.
-      }
-      WHERE {
-        ${sparqlEscapeUri(sessionId)} veeakker:hasBasket ?basket.
-        OPTIONAL { ?basket veeakker:basketPaymentStatus ?paymentStatus. }
-        OPTIONAL { ?basket veeakker:basketOrderStatus ?orderStatus. }
-        OPTIONAL { ?basket veeakker:statusChangedAt ?changedDate. }
-      }
-    `);
-
-    // TODO: cope with erroneous responses from Mollie
-  } catch (err) {
-    console.log(err);
-  }
-  res.send("Success");
-} );
-
-
-app.get('', function( req, res ) {
-  res.send('Hello mu-javascript-template');
-} );
-
-
-app.use( errorHandler );
-
-
-async function getSessionBasketInfo(req){
-  const sessionUri = req.get('mu-session-id');
-
-  const queryString = `PREFIX veeakker: <http://veeakker.be/vocabularies/shop/>
-    PREFIX gr: <http://purl.org/goodrelations/v1#>
-    PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-
-    SELECT * WHERE {
-      GRAPH <http://mu.semte.ch/application> {
-        ${sparqlEscapeUri(sessionUri)} veeakker:hasBasket ?basket.
-        ?basket veeakker:orderLine ?orderLine.
-        ?basket mu:uuid ?uuid.
-
-        ?orderLine veeakker:amount ?amount.
-        ?orderLine veeakker:hasOffering/gr:hasPriceSpecification ?priceSpec.
-        ?priceSpec gr:hasUnitOfMeasurement "C62";
-                   gr:hasCurrencyValue ?value.
-      }
-    }`;
-
-  // TODO: cope with different types of measurements
-  const response = await query( queryString );
-
-  const reducer = function( acc, obj ) {
-    console.log(`Adding object ${JSON.stringify( obj )}`);
-    const { amount, value } = obj;
-    return parseFloat( value.value ) * parseInt( amount.value );
-  };
-
-  const amount = response.results.bindings.reduce( reducer, 0 );
-
-  const basketUuid = response.results.bindings[0].uuid.value;
-
-  return { amount, basketUuid };
-}
+    if (await storeMollieApiKey(sellerWebId, apiKey)) {
+        res.send('API key stored');
+    } else {
+        res.status(500).send('API key not stored');
+    }
+});
